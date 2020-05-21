@@ -1,0 +1,41 @@
+#include <HX711.h>
+
+#define LOADCELL_DOUT_PIN_1 4
+#define LOADCELL_SCK_PIN_1 5
+#define LOADCELL_DOUT_PIN_2 6
+#define LOADCELL_SCK_PIN_2 7
+
+HX711 loadcell_1;
+HX711 loadcell_2;
+
+char loadcell_ready;
+
+void setup() {
+  Serial.begin(115200);
+  loadcell_1.begin(LOADCELL_DOUT_PIN_1, LOADCELL_SCK_PIN_1);
+  loadcell_2.begin(LOADCELL_DOUT_PIN_2, LOADCELL_SCK_PIN_2);
+
+  loadcell_1.tare()
+  loadcell_2.tare()
+
+  loadcell_ready = 0b00;
+}
+
+void loop() {
+  if (loadcell_1.update()) loadcell_ready |= 0b01;
+  if (loadcell_2.update()) loadcell_ready |= 0b10;
+  
+  if (loadcell_ready == 0b11 && Serial.available() > 0) {
+    char inByte = Serial.read();
+    if (inByte == 'F') {
+      float weight_1 = loadcell_1.getData();
+      float weight_2 = loadcell_2.getData();
+      Serial.println(abs(weight_1) - abs(weight_2));
+      loadcell_ready = 0b00;
+    } else if (inByte == 'T') {
+      loadcell_1.tare();
+      loadcell_2.tare();
+      Serial.println("TARED");
+    }
+  }
+}
