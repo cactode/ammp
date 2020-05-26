@@ -5,7 +5,7 @@ from sklearn import linear_model
 from matplotlib import pyplot as plt
 
 from models import T_lin, F_lin, T_x_vector, Fy_x_vector
-from objects import Data, Reading, EndMill, Prediction
+from objects import Data, Conditions, EndMill, Prediction
 
 class Model(abc.ABC):
     """
@@ -40,19 +40,21 @@ class LinearModel(Model):
         self.training_T_y = list()
         self.training_Fy_x = list()
         self.training_Fy_y = list()
-        self.regressor_T = linear_model.Lasso(fit_intercept = False, warm_start=True)
-        self.regressor_Fy = linear_model.Lasso(fit_intercept = False, warm_start=True)
+        self.regressor_T = linear_model.LinearRegression(fit_intercept = False)
+        self.regressor_Fy = linear_model.LinearRegression(fit_intercept = False)
         self.params = np.array([0,0,0,0])
 
     def ingest_datum(self, datum):
         # decompose
-        D, W, f_r, w, endmill, Ts, Fys = datum.D, datum.W, datum.f_r, datum.w, datum.endmill, datum.Ts, datum.Fys
-        R, N = endmill.R, endmill, N
-        T, Fy = np.median(Ts[:, 1]), np.median(Fys[:, 1])
+        _, _, _, _, _, Ts, Fys = datum.unpack()
+        T, Fy = np.median(Ts[1, :]), np.median(Fys[1, :])
 
         # get linear coefficients
-        T_x = T_x_vector(D, N, R, W, f_r, w)
-        Fy_x = Fy_x_vector(D, N, R, W, f_r, w)
+        T_x = T_x_vector(datum.conditions())
+        Fy_x = Fy_x_vector(datum.conditions())
+
+        print("T", T)
+        print("coef times real K_tc", T_x[1] * 858494934.9591976)
 
         # add to training set
         self.training_T_x.append(T_x)
@@ -68,24 +70,25 @@ class LinearModel(Model):
 
         # calculate best fit from data
         self.regressor_T.fit(self.training_T_x, self.training_T_y)
-        K_tc, K_te = self.regressor.coef_
+        K_tc, K_te = self.regressor_T.coef_
+        print(K_tc, K_te)
         self.params[0], self.params[1] = K_tc, K_te
 
         # transform Fy into a smaller linear problem and fit
         intercepts = training_Fy_x @ np.array([K_tc, K_te, 0, 0])[np.newaxis].T
         training_Fy_y_no_intercepts = training_Fy_y - intercepts
         self.regressor_Fy.fit(training_Fy_x[:, 2:], training_Fy_y_no_intercepts)
+        K_rc, K_re = self.regressor_Fy.coef_
+        self.params[0], self.params[1] = K_rc, K_re
 
     def predict_one(self, conditions):
         # decompose
-        D, W, f_r, w, endmill = conditions.D, conditions.W, conditions.f_r, conditions.w, conditions.endmill
-        R, N = endmill.R, endmill, N
 
         # evaluate
-        T = T_lin(D, N, R, W, f_r, w, self.params[0], self.params[1])
-        F = F_lin(D, N, R, W, f_r, w, *self.params)
+        T = T_lin(conditions, *self.params[:2])
+        F = F_lin(conditions, *self.params)
 
         # repack and return
-        return Prediction(D, W, f_r, w, endmill, T, F)
+        return Prediction(conditions, T, F)
 
 

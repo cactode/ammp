@@ -62,10 +62,11 @@ class Cut:
         self._logger.info("Layer prepared for clearing")
 
     
-    def cut(self, W, f_r, w):
+    def cut(self, conditions):
         """
         Performs a stroke of facing. Returns a data blob.
         """
+        _, W, f_r, w, _ = conditions.unpack()
         X_START = x_cut - self.endmill.r_c + W
         if X_START > self.X_END:
             raise MachineCrash("Cutting too far in X direction: X = " + str(X_START))
