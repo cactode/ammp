@@ -6,8 +6,10 @@ import shelve
 import threading
 import logging
 import queue
-
 from abc import ABC, abstractmethod
+
+log = logging.getLogger(__name__)
+
 
 class Sensor(ABC):
     def __init__(self):
@@ -18,12 +20,11 @@ class Sensor(ABC):
     def sensorFunction(self):
         ...
 
-
     def start_measurement(self, outQueue, initialTime):
         self.measure.set()
         self.sensorThread = threading.Thread(target=self.measureLoop,
-                                                   daemon=True,
-                                                   args=(outQueue, initialTime))
+                                             daemon=True,
+                                             args=(outQueue, initialTime))
         self.sensorThread.start()
 
     def measureLoop(self, outQueue, initialTime):
@@ -31,7 +32,6 @@ class Sensor(ABC):
             measurement = self.sensorFunction()
             t = time.perf_counter() - initialTime
             outQueue.put((t, measurement))
-                
 
     def stop_measurement(self):
         if not self.sensorThread:
@@ -39,26 +39,26 @@ class Sensor(ABC):
         self.measure.clear()
         self.sensorThread.join()
 
+
 class Machine(Sensor):
     """
     Initialize Machine interface.
     Args:
         port: port to use
     """
-    def __init__(self, port : serial.Serial):
+
+    def __init__(self, port: serial.Serial):
         super().__init__()
-        self._logger = logging.Logger("Machine")
-        self._logger.setLevel(logging.DEBUG)
-        self.port = serial.Serial(port, 115200, 
-                                  parity=serial.PARITY_NONE, 
-                                  stopbits=serial.STOPBITS_ONE, 
+        self._logger = logging.getLogger(__name__ + ".machine")
+        self.port = serial.Serial(port, 115200,
+                                  parity=serial.PARITY_NONE,
+                                  stopbits=serial.STOPBITS_ONE,
                                   bytesize=serial.EIGHTBITS,
-                                  timeout=0.5, 
+                                  timeout=0.5,
                                   writeTimeout=0)
 
         self.port_lock = threading.RLock()
-        self.last_position = (0,0,0)
-
+        self.last_position = (0, 0, 0)
 
         self._logger.info("Waking up GRBL")
         self.write("")
@@ -67,11 +67,11 @@ class Machine(Sensor):
         self.port.reset_input_buffer()
         self.port.reset_output_buffer()
         self._logger.info("GRBL woken up")
-        
+
     def __del__(self):
         self.write_ok("!")
         self.port.close()
-    
+
     def write(self, msg):
         """Writes a message to the serial port"""
         self.port_lock.acquire()
@@ -86,7 +86,7 @@ class Machine(Sensor):
         self.port_lock.release()
         return resp
 
-    def write_ok(self, msg : str, attempts = float('inf')):
+    def write_ok(self, msg: str, attempts=float('inf')):
         """
         Writes a message to GRBL, blocks until response acknowledged
         Args:
@@ -114,7 +114,7 @@ class Machine(Sensor):
             if "<" in resp:
                 self.port_lock.release()
                 return resp
-    
+
     def home(self):
         self.write_ok('$H', 5)
 
@@ -126,13 +126,14 @@ class Machine(Sensor):
         self.write_ok("G10 P0 L20 X0 Y0 Z0", 5)
         self._logger.info("Machine zero set.")
 
-    
     def rapid(self, coords):
-        self.write_ok("G0 " + " ".join([key + str(value) for key, value in coords.items()]))
+        self.write_ok(
+            "G0 " + " ".join([key + str(value * 1e3) for key, value in coords.items()]))
         self._logger.info("Rapid move to " + str(coords))
 
     def cut(self, coords, feed):
-        self.write_ok("G1 " + " ".join([key + str(value) for key, value in coords.items()]) + " F" + str(feed))
+        self.write_ok("G1 " + " ".join([key + str(value * 1e3)
+                                        for key, value in coords.items()]) + " F" + str(feed * 60000))
         self._logger.info("Cut move to " + str(coords))
 
     def get_state(self):
@@ -140,12 +141,14 @@ class Machine(Sensor):
         msgs = resp.strip("<>").split("|")
         state = msgs[0]
         others = msgs[1:]
-        reports = {other.split(":")[0]:other.split(":")[1] for other in others}
-        x, y, z = [float(i) for i in reports["WPos"].split(",")]
+        reports = {other.split(":")[0]: other.split(":")[1]
+                   for other in others}
+        x, y, z = [float(i * 1e-3) for i in reports["WPos"].split(",")]
         feed, _ = reports["FS"].split(",")
-        dx, dy, dz = [cur - last for cur, last in zip((x, y, z), self.last_position)]
+        dx, dy, dz = [cur - last for cur,
+                      last in zip((x, y, z), self.last_position)]
         self.last_position = (x, y, z)
-        return {'state': state, 'wpos':{'x': x, 'y': y, 'z': z}, 'feed': feed, 'direction': {'dx': dx, 'dy': dy, 'dz': dz}}
+        return {'state': state, 'wpos': {'x': x, 'y': y, 'z': z}, 'feed': feed / 60000, 'direction': {'dx': dx, 'dy': dy, 'dz': dz}}
 
     def hold_until_still(self):
         self._logger.info("Holding until Idle")
@@ -160,7 +163,6 @@ class Machine(Sensor):
             time.sleep(0.1)
         self._logger.info("Condition met")
 
-
     def sensorFunction(self):
         return ('machine', self.get_state())
 
@@ -170,8 +172,7 @@ class Spindle(Sensor):
 
     def __init__(self, port):
         super().__init__()
-        self._logger = logging.Logger("Spindle")
-        self._logger.setLevel(logging.DEBUG)
+        self._logger = logging.getLogger(__name__ + ".spindle")
         self._logger.info("Waking up VESC")
         self.spindle = pyvesc.VESC(port)
         self._logger.info("VESC Ready")
@@ -198,7 +199,6 @@ class Spindle(Sensor):
         self.spindle_lock.release()
         self.avg_current /= samples
 
-
     def set_w(self, w):
         self.spindle_lock.acquire()
         rpm = int(w * (60 / (2 * np.pi))) * 4
@@ -206,43 +206,38 @@ class Spindle(Sensor):
         time.sleep(1)
         confirmation = self.spindle.get_measurements()
         self.spindle_lock.release()
-        self._logger.info("Attempted to set RPM of " + str(rpm) + ", actual RPM is " + str(confirmation.rpm))
+        self._logger.info("Attempted to set RPM of " + str(rpm) +
+                          ", actual RPM is " + str(confirmation.rpm))
         if rpm > 0 and confirmation.rpm < rpm * 0.75:
             self.spindle.set_rpm(0)
-            raise Exception("Spindle did not approach requested speed of " + str(rpm) + ", actual speed is " + str(confirmation.rpm))
+            raise Exception("Spindle did not approach requested speed of " +
+                            str(rpm) + ", actual speed is " + str(confirmation.rpm))
 
     def sensorFunction(self):
         self.spindle_lock.acquire()
         measurements = self.spindle.get_measurements()
         self.spindle_lock.release()
-        all_measurements = {attr: getattr(measurements, attr) for attr in dir(measurements) if (attr[0] != '_' and "fields" not in attr)}
+        all_measurements = {attr: getattr(measurements, attr) for attr in dir(
+            measurements) if (attr[0] != '_' and "fields" not in attr)}
         all_measurements['avg_current'] = self.avg_current
-        all_measurements['torque'] = (measurements.avg_motor_current - self.avg_current) * 0.0348134
+        all_measurements['torque'] = (
+            measurements.avg_motor_current - self.avg_current) * 0.0348134
         return ('spindle', all_measurements)
+
 
 class TFD(Sensor):
 
     # completely insane strategy:
     """
-    0 bits to 0 kg
-    677868.0 bits to one kg
-    4122187.0 bits to five kg
-    5050401.0 bits to 6 kg
-    linear fit through all points leads to conversion value of 832116 bits to one kg
-    hella inaccurate but eh
-    cubic equation from kg to bits:
-    2781.62 * x ** 3 + 745886 * x
-    unknown if it works past 6kg but eh it's a start lol
-    https://bit.ly/3c6lR2M for fitting memes
+    y3et
     """
 
-    BITS_TO_N = 227753.0 / 9.81
+    BITS_TO_N = 1568
 
     def __init__(self, port):
         super().__init__()
         self.port = serial.Serial(port, 115200, timeout=0.5)
-        self._logger = logging.Logger("TFD")
-        self._logger.setLevel(logging.DEBUG)
+        self._logger = logging.getLogger(__name__ + ".tfd")
         self._logger.info("Waking up TFD")
         self.port.write("F".encode('ascii'))
         self.port.flush()
@@ -250,13 +245,11 @@ class TFD(Sensor):
         self.port.reset_input_buffer()
         self._logger.info("TFD Ready")
 
-
     def get_force(self):
         self.port.write("F".encode('ascii'))
         self.port.flush()
         resp = self.port.readline().decode('ascii').strip()
         return float(resp) / TFD.BITS_TO_N
-
 
     def calibrate(self):
         self.port.write("T".encode('ascii'))
@@ -265,79 +258,111 @@ class TFD(Sensor):
             if "TARED" in self.port.readline().decode('ascii'):
                 return
 
-
     def sensorFunction(self):
         return ('tfd', self.get_force())
+
 
 class Spindle_Applied(Sensor):
 
     RS485_ADDRESS = 0
-    I_TO_T = 1
+    I_TO_T = 0.10281
     CALIBRATION_POINTS = 100
 
     def __init__(self, port):
-        self.port = serial.Serial(port, 38400, timeout=0.5)
+        self._logger = logging.getLogger(__name__ + ".spindle_applied")
+        self.port = serial.Serial(port, 115200, timeout=0.5)
         self.torque_loss = 0
+        self.jogging = False
 
         self.port_lock = threading.RLock()
         self.port.reset_input_buffer()
         self.port.reset_output_buffer()
-        
+        self.write_ack("AX")
+        self.write_ack("ME")
+        self.write_ack("IFD")
+        self._logger.info("Initalized Applied Motion Spindle")
+
     def __del__(self):
-        self.write_ack("SJ")
+        if self.jogging:
+            self.write_ack("SJ")
+        self.write_ack("MD")
         self.port.close()
 
-    def write_ack(self, msg):
+    def write(self, msg):
         self.port_lock.acquire()
-        full_msg = Spindle_Applied.RS485_ADDRESS +\
+        full_msg = str(Spindle_Applied.RS485_ADDRESS) +\
                    msg +\
                    "\r"
         self.port.write(full_msg.encode('ascii'))
         self.port.flush()
         self.port_lock.release()
-        response = self.port.read().decode('ascii')
-        if response in ('%', '*'):
+
+    def write_ack(self, msg):
+        self._logger.info("Writing: " + msg)
+        self.port_lock.acquire()
+        self.write(msg)
+        response = self.port.read_until('\r'.encode('ascii')).decode('ascii').strip()
+        self.port_lock.release()
+        ack_byte = response[1] if response else None
+        if ack_byte in ('%', '*'):
             return
-        elif response == '?':
+        elif ack_byte == '?':
             raise Exception("Error sent back from drive.")
         elif not response:
             raise Exception("Command was not understood by drive")
         else:
-            raise Exception("Unknown ack received: " + response)
+            raise Exception("Unknown ack received: " + response.strip())
 
     def write_get_response(self, msg):
         self.port_lock.acquire()
-        self.write_ack(msg)
-        response = self.port.readline().decode('ascii')
+        self.write(msg)
+        response = self.port.read_until("\r".encode('ascii')).decode('ascii').strip()
         self.port_lock.release()
-        assert response[0] == Spindle_Applied.RS485_ADDRESS , "Address of response incorrect, was actually " + response[0]
-        assert response[1:3] == msg[0: 2], "Command of response incorrect, was actually " + response[1:3]
-        assert response[4] == "=", "No '=' in response, was actually " + response[4]
-        return response[5:]
+        self._logger.info("Response is: " + response)
+        assert response[0] == str(Spindle_Applied.RS485_ADDRESS), "Address of response incorrect, was actually " + response[0]
+        assert response[1:3] == msg[0:2], "Command of response incorrect, was actually " + response[1:3]
+        assert response[3] == "=", "No '=' in response, was actually " + response[4]
+        return response[4:]
 
     def set_w(self, w):
-        rpm = int(w * (60 / (2 * np.pi))) 
-        self.write_ack("JA50")
-        self.write_ack("JL25")
-        self.write_ack("CJ")
-        time.sleep(1)
-        actual_rpm = self.write_get_response("IV")
-        if rpm != 0 and actual_rpm < rpm * 0.75:
+        self.port.reset_input_buffer()
+        self.port.reset_output_buffer()
+        rpm = int(w * (60 / (2 * np.pi)))
+        rpm_str = "{:.3f}".format(rpm / 60)
+        if rpm:
+            if not self.jogging:
+                self.write_ack("JS" + rpm_str)
+                self.write_ack("CJ")
+                self.jogging = True
+            else:
+                self.write_ack("CS" + rpm_str)
+        else:
             self.write_ack("SJ")
-            raise Exception("Failed to reach speed of " + str(rpm) + "RPM. Actually reached " + str(actual_rpm) + "RPM.")
+            self.jogging = False
+            return
+        time.sleep(1)
+        response = self.write_get_response("IV0")
+        actual_rpm = float(response)
+        if actual_rpm < rpm * 0.75:
+            self.write_ack("SJ")
+            raise Exception("Failed to reach speed of " + str(rpm) +
+                            "RPM. Actually reached " + str(actual_rpm) + " RPM.")
+        self._logger.info("Set RPM to " + str(rpm) +
+                          ", achieved speed of " + str(actual_rpm))
 
-    def get_torque(self, calibrated = True):
-        I = float(self.write_get_response("IQ"))
+    def get_torque(self, calibrated=True):
+        I = float(self.write_get_response("IC"))
         return I * Spindle_Applied.I_TO_T - (self.torque_loss if calibrated else 0)
 
     def calibrate(self):
         Ts = list()
-        for i in range(Spindle_Applied.CALIBRATION_POINTS):
+        for _ in range(Spindle_Applied.CALIBRATION_POINTS):
             time.sleep(0.01)
-            Ts.append(self.get_torque(calibrated = False))
-        
+            Ts.append(self.get_torque(calibrated=False))
+
         self.torque_loss = np.median(Ts)
+        self._logger.info(
+            "Calibrated, torque loss found to be " + str(self.torque_loss))
 
     def sensorFunction(self):
         return ('spindle', self.get_torque())
-

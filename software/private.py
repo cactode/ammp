@@ -1,16 +1,29 @@
-from sensors import Machine, Spindle, TFD
-from queue import Queue
+from sensors import TFD, Spindle_Applied
+
 import time
-PORT_1 = '/dev/ttyS26'
-PORT_2 = '/dev/ttyS5'
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
-outQueue = Queue()
-tfd = TFD(PORT_1)
+TFD_PORT = '/dev/ttyS26'
+SPN_port = '/dev/ttyS33'
+
+TEST_CALIBRATION = 1
+
+def test_tfd():
+    tfd = TFD(TFD_PORT)
+    max_force = 0
+    while True:
+        force = tfd.get_force() / TEST_CALIBRATION
+        if force > max_force: max_force = force
+        print("Force from TFD:", force)
+        print("Max force: ", max_force)
 
 
+def test_spindle():
+    spindle = Spindle_Applied(SPN_port)
+    spindle.set_w(400)
+    spindle.calibrate()
+    print("Calibrated to ", spindle.torque_loss)
+    spindle.set_w(0)
 
-while True:
-    print(tfd.get_force())
-
-
-# 0.03325758958259111 is positive weight
+test_spindle()
