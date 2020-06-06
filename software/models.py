@@ -75,6 +75,18 @@ def T_x_vector(conditions: Conditions):
 
     return[(D * N * W * f_t) / (2 * np.pi), (D * N * R * np.arccos(1 - (W / R))) / (2 * np.pi)]
 
+def T_x_vector_padded(conditions: Conditions):
+    """
+    Outputs vector that corresponds to coefficients in order:
+        K_tc, K_te, K_rc, K_re
+    Note that last two coefficents are 0 no matter what.
+    """
+    D, W, f_r, w, endmill = conditions.unpack()
+    N, R, _, _, _ = endmill.unpack()
+    f_t = calc_f_t(conditions)
+
+    return[(D * N * W * f_t) / (2 * np.pi), (D * N * R * np.arccos(1 - (W / R))) / (2 * np.pi), 0, 0]
+
 
 def Fy_x_vector(conditions: Conditions):
     D, W, f_r, w, endmill = conditions.unpack()

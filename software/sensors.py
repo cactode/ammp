@@ -12,6 +12,9 @@ log = logging.getLogger(__name__)
 
 
 class Sensor(ABC):
+    """
+    Represents a sensor used for data collection. Implements a basic set of multithreaded data collection subroutines.
+    """
     def __init__(self):
         self.sensorThread = None
         self.measure = threading.Event()
@@ -143,12 +146,12 @@ class Machine(Sensor):
         others = msgs[1:]
         reports = {other.split(":")[0]: other.split(":")[1]
                    for other in others}
-        x, y, z = [float(i * 1e-3) for i in reports["WPos"].split(",")]
+        x, y, z = [float(i) * 1e-3 for i in reports["WPos"].split(",")]
         feed, _ = reports["FS"].split(",")
         dx, dy, dz = [cur - last for cur,
                       last in zip((x, y, z), self.last_position)]
         self.last_position = (x, y, z)
-        return {'state': state, 'wpos': {'x': x, 'y': y, 'z': z}, 'feed': feed / 60000, 'direction': {'dx': dx, 'dy': dy, 'dz': dz}}
+        return {'state': state, 'wpos': {'x': x, 'y': y, 'z': z}, 'feed': float(feed) / 60000, 'direction': {'dx': dx, 'dy': dy, 'dz': dz}}
 
     def hold_until_still(self):
         self._logger.info("Holding until Idle")
@@ -246,17 +249,41 @@ class TFD(Sensor):
         self._logger.info("TFD Ready")
 
     def get_force(self):
-        self.port.write("F".encode('ascii'))
-        self.port.flush()
-        resp = self.port.readline().decode('ascii').strip()
-        return float(resp) / TFD.BITS_TO_N
+        for i in range(5):
+            e = "No exception..."
+            try:
+                self.port.write("F".encode('ascii'))
+                self.port.flush()
+                resp = self.port.readline().decode('ascii').strip()
+                return float(resp) / TFD.BITS_TO_N
+            except Exception as ex:
+                e = ex
+            self._logger.warn("Read #" + str(i + 1) + " failed, trying again...")
+            self._logger.warn("Specific error: " + str(e))
+            self.port.reset_input_buffer()
+            self.port.reset_output_buffer()
+
+        raise IOError("Failed to get force from TFD")
 
     def calibrate(self):
-        self.port.write("T".encode('ascii'))
-        self.port.flush()
-        while True:
-            if "TARED" in self.port.readline().decode('ascii'):
-                return
+        for i in range(5):
+            e = "No exception"
+            try:
+                self.port.write("T".encode('ascii'))
+                self.port.flush()
+                for _ in range(5):
+                    if "TARED" in self.port.readline().decode('ascii'):
+                        return
+
+            except Exception as ex:
+                e = ex
+            # sensor failed to calibrate, retry
+            self._logger.warn("Calibrate #" + str(i + 1) + " failed, trying again...")
+            self._logger.warn("Specific error: " + str(e))
+            self.port.reset_input_buffer()
+            self.port.reset_output_buffer()
+
+        raise IOError("Failed to calibrate TFD")
 
     def sensorFunction(self):
         return ('tfd', self.get_force())
@@ -266,10 +293,12 @@ class Spindle_Applied(Sensor):
 
     RS485_ADDRESS = 0
     I_TO_T = 0.10281
-    CALIBRATION_POINTS = 100
+    CALIBRATION_POINTS = 200
 
     def __init__(self, port):
+        super().__init__()
         self._logger = logging.getLogger(__name__ + ".spindle_applied")
+        self._logger.info("Waking up Applied Motion Spindle")
         self.port = serial.Serial(port, 115200, timeout=0.5)
         self.torque_loss = 0
         self.jogging = False
@@ -280,12 +309,12 @@ class Spindle_Applied(Sensor):
         self.write_ack("AX")
         self.write_ack("ME")
         self.write_ack("IFD")
-        self._logger.info("Initalized Applied Motion Spindle")
+        self._logger.info("Applied Motion Spindle Ready")
 
     def __del__(self):
         if self.jogging:
-            self.write_ack("SJ")
-        self.write_ack("MD")
+            self.write("SJ")
+        self.write("MD")
         self.port.close()
 
     def write(self, msg):
@@ -298,31 +327,54 @@ class Spindle_Applied(Sensor):
         self.port_lock.release()
 
     def write_ack(self, msg):
-        self._logger.info("Writing: " + msg)
-        self.port_lock.acquire()
-        self.write(msg)
-        response = self.port.read_until('\r'.encode('ascii')).decode('ascii').strip()
-        self.port_lock.release()
-        ack_byte = response[1] if response else None
-        if ack_byte in ('%', '*'):
-            return
-        elif ack_byte == '?':
-            raise Exception("Error sent back from drive.")
-        elif not response:
-            raise Exception("Command was not understood by drive")
-        else:
-            raise Exception("Unknown ack received: " + response.strip())
+        for i in range(5):
+            e = "No exception..."
+            try:
+                self.port_lock.acquire()
+                self.write(msg)
+                response = self.port.read_until('\r'.encode('ascii')).decode('ascii').strip()
+                self.port_lock.release()
+                ack_byte = response[1] if response else None
+                if ack_byte in ('%', '*'):
+                    return
+                elif ack_byte == '?':
+                    self._logger.warn("Error sent back from drive.")
+                elif not response:
+                    self._logger.warn("Command was not understood by drive")
+                else:
+                    self._logger.warn("Unknown ack received: " + response.strip())
+            # trying again
+            except Exception as ex:
+                e = ex
+            self._logger.warn("Write #" + str(i + 1) + " failed, trying again.")
+            self._logger.warn("Specific error: " + str(e))
+            self.port.reset_input_buffer()
+            self.port.reset_output_buffer()
+
+        raise IOError("Failed to write command to spindle...")
 
     def write_get_response(self, msg):
-        self.port_lock.acquire()
-        self.write(msg)
-        response = self.port.read_until("\r".encode('ascii')).decode('ascii').strip()
-        self.port_lock.release()
-        self._logger.info("Response is: " + response)
-        assert response[0] == str(Spindle_Applied.RS485_ADDRESS), "Address of response incorrect, was actually " + response[0]
-        assert response[1:3] == msg[0:2], "Command of response incorrect, was actually " + response[1:3]
-        assert response[3] == "=", "No '=' in response, was actually " + response[4]
-        return response[4:]
+        for i in range(5):
+            e = "No Exception..."
+            try:
+                self.port_lock.acquire()
+                self.write(msg)
+                response = self.port.read_until("\r".encode('ascii')).decode('ascii').strip()
+                self.port_lock.release()
+                assert response[0] == str(Spindle_Applied.RS485_ADDRESS), "Address of response incorrect, was actually " + response[0]
+                assert response[1:3] == msg[0:2], "Command of response incorrect, was actually " + response[1:3]
+                assert response[3] == "=", "No '=' in response, was actually " + response[4]
+                return response[4:]
+
+            except Exception as ex:
+                e = ex
+
+            self._logger.warn("Response #" + str(i + 1) + " failed, trying again.")
+            self._logger.warn("Specific error: " + str(e))
+            self.port.reset_input_buffer()
+            self.port.reset_output_buffer()
+
+        raise IOError("Failed to get proper response from spindle...")
 
     def set_w(self, w):
         self.port.reset_input_buffer()
@@ -332,17 +384,19 @@ class Spindle_Applied(Sensor):
         if rpm:
             if not self.jogging:
                 self.write_ack("JS" + rpm_str)
+                self.write_ack("DI-1000000")
                 self.write_ack("CJ")
                 self.jogging = True
             else:
-                self.write_ack("CS" + rpm_str)
+                self.write_ack("DI-1000000")
+                self.write_ack("CS-" + rpm_str)
         else:
             self.write_ack("SJ")
             self.jogging = False
             return
         time.sleep(1)
         response = self.write_get_response("IV0")
-        actual_rpm = float(response)
+        actual_rpm = -float(response)
         if actual_rpm < rpm * 0.75:
             self.write_ack("SJ")
             raise Exception("Failed to reach speed of " + str(rpm) +
@@ -351,7 +405,7 @@ class Spindle_Applied(Sensor):
                           ", achieved speed of " + str(actual_rpm))
 
     def get_torque(self, calibrated=True):
-        I = float(self.write_get_response("IC"))
+        I = -float(self.write_get_response("IC"))
         return I * Spindle_Applied.I_TO_T - (self.torque_loss if calibrated else 0)
 
     def calibrate(self):

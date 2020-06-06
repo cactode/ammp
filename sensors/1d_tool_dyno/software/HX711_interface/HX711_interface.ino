@@ -15,7 +15,7 @@ void loop() {
   if (Serial.available() > 0) {
     char inByte = Serial.read();
     if (inByte == 'F') {
-      float weight = loadcell.get_value();
+      float weight = -loadcell.get_value();
       Serial.println(weight);
     } else if (inByte == 'T') {
       loadcell.tare();

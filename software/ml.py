@@ -4,7 +4,7 @@ import numpy as np
 from sklearn import linear_model
 from matplotlib import pyplot as plt
 
-from models import T_lin, F_lin, T_x_vector, Fy_x_vector
+from models import T_lin, F_lin, T_x_vector, T_x_vector_padded, Fy_x_vector
 from objects import Data, Conditions, EndMill, Prediction
 
 
@@ -22,7 +22,8 @@ class Model(abc.ABC):
         pass
 
     def ingest_data(self, data):
-        return list(map(self.ingest_datum, data))
+        for datum in data:
+            self.ingest_datum(datum)
 
     @abc.abstractmethod
     def predict_one(self, conditions):
@@ -32,7 +33,7 @@ class Model(abc.ABC):
         pass
 
     def predict(self, conditions):
-        return list(map(conditions, self.predict_one))
+        return list(map(self.predict_one, conditions))
 
 
 class LinearModel(Model):
@@ -49,7 +50,7 @@ class LinearModel(Model):
     def ingest_datum(self, datum):
         # decompose
         _, _, _, _, _, Ts, Fys = datum.unpack()
-        T, Fy = np.median(Ts[1, :]), np.median(Fys[1, :])
+        T, Fy = np.median(Ts[:, 1]), np.median(Fys[:, 1])
         # get linear coefficients
         T_x = T_x_vector(datum.conditions())
         Fy_x = Fy_x_vector(datum.conditions())
@@ -87,3 +88,100 @@ class LinearModel(Model):
 
         # repack and return
         return Prediction(*conditions.unpack(), T, F)
+
+class UnifiedLinearModel(Model):
+    def __init__(self):
+        self.training_Tx = list()
+        self.training_Ty = list()
+        self.training_Fyx = list()
+        self.training_Fyy = list()
+
+        self.regressor = linear_model.LinearRegression(fit_intercept=False)
+        self.params = np.array([0, 0, 0, 0], dtype='float64')
+
+    def ingest_datum(self, datum):
+        # decompose
+        _, _, _, _, _, Ts, Fys = datum.unpack()
+        T, Fy = np.median(Ts[:, 1]), np.median(Fys[:, 1])
+        # get linear coefficients
+        T_x = np.array(T_x_vector_padded(datum.conditions()))
+        Fy_x = np.array(Fy_x_vector(datum.conditions()))
+
+        # we want to artificially inflate T to be as big as F
+        # this is a little arbitrary, might not be the best idea lol
+        ratio = Fy_x[:2].mean() / T_x[:2].mean()
+        T_x *= ratio
+        T *= ratio
+
+        # add T to training set
+        self.training_Tx.append(T_x)
+        self.training_Ty.append(T)
+
+        # add Fy to training set
+        self.training_Fyx.append(Fy_x)
+        self.training_Fyy.append(Fy)
+
+        self.update()
+
+    def update(self):
+        # calculate best fit from data
+        self.regressor.fit(self.training_Tx + self.training_Fyx, self.training_Ty + self.training_Fyy)
+        self.params = np.array(self.regressor.coef_)
+
+    def predict_one(self, conditions):
+        # evaluate
+        T = T_lin(conditions, *self.params[:2])
+        F = F_lin(conditions, *self.params)
+
+        # repack and return
+        return Prediction(*conditions.unpack(), T, F)
+
+class RANSACLinearModel(Model):
+    def __init__(self):
+        self.training_Tx = list()
+        self.training_Ty = list()
+        self.training_Fyx = list()
+        self.training_Fyy = list()
+
+        base_regressor = linear_model.LinearRegression(fit_intercept=False)
+        self.regressor = linear_model.RANSACRegressor(base_regressor, min_samples=5)
+        self.params = np.array([0, 0, 0, 0], dtype='float64')
+
+    def ingest_datum(self, datum):
+        # decompose
+        _, _, _, _, _, Ts, Fys = datum.unpack()
+        T, Fy = np.median(Ts[:, 1]), np.median(Fys[:, 1])
+        # get linear coefficients
+        T_x = np.array(T_x_vector_padded(datum.conditions()))
+        Fy_x = np.array(Fy_x_vector(datum.conditions()))
+
+        # we want to artificially inflate T to be as big as F
+        # this is a little arbitrary, might not be the best idea lol
+        ratio = Fy_x[:2].mean() / T_x[:2].mean()
+        T_x *= ratio
+        T *= ratio
+
+        # add T to training set
+        self.training_Tx.append(T_x)
+        self.training_Ty.append(T)
+
+        # add Fy to training set
+        self.training_Fyx.append(Fy_x)
+        self.training_Fyy.append(Fy)
+
+        if (len(self.training_Tx) + len(self.training_Fyx)) > 4:
+            self.update()
+
+    def update(self):
+        # calculate best fit from data
+        self.regressor.fit(self.training_Tx + self.training_Fyx, self.training_Ty + self.training_Fyy)
+        self.params = np.array(self.regressor.estimator_.coef_)
+
+    def predict_one(self, conditions):
+        # evaluate
+        T = T_lin(conditions, *self.params[:2])
+        F = F_lin(conditions, *self.params)
+
+        # repack and return
+        return Prediction(*conditions.unpack(), T, F)
+

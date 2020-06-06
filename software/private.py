@@ -21,8 +21,9 @@ def test_tfd():
 
 def test_spindle():
     spindle = Spindle_Applied(SPN_port)
-    spindle.set_w(400)
-    spindle.calibrate()
+    spindle.set_w(300)
+    # spindle.calibrate()
+    while True: pass
     print("Calibrated to ", spindle.torque_loss)
     spindle.set_w(0)
 
