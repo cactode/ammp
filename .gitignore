@@ -4,6 +4,7 @@
 private/
 .vscode/
 saved_cuts/
+generated_assets/
 *~$*
 
 # Byte-compiled / optimized / DLL files

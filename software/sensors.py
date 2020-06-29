@@ -50,7 +50,7 @@ class Machine(Sensor):
         port: port to use
     """
 
-    def __init__(self, port: serial.Serial):
+    def __init__(self, port: serial.Serial, graceful_shutdown = False):
         super().__init__()
         self._logger = logging.getLogger(__name__ + ".machine")
         self.port = serial.Serial(port, 115200,
@@ -59,6 +59,7 @@ class Machine(Sensor):
                                   bytesize=serial.EIGHTBITS,
                                   timeout=0.5,
                                   writeTimeout=0)
+        self.graceful_shutdown = graceful_shutdown
 
         self.port_lock = threading.RLock()
         self.last_position = (0, 0, 0)
@@ -72,6 +73,11 @@ class Machine(Sensor):
         self._logger.info("GRBL woken up")
 
     def __del__(self):
+        if self.graceful_shutdown:
+            self.rapid({'z': 1})
+            self.rapid({'x': 0, 'y': 0})
+            self.rapid({'z': 0})
+            self.hold_until_still()
         self.write_ok("!")
         self.port.close()
 
@@ -137,7 +143,7 @@ class Machine(Sensor):
     def cut(self, coords, feed):
         self.write_ok("G1 " + " ".join([key + str(value * 1e3)
                                         for key, value in coords.items()]) + " F" + str(feed * 60000))
-        self._logger.info("Cut move to " + str(coords))
+        self._logger.info("Cut move to   " + str(coords))
 
     def get_state(self):
         resp = self.read_state()
@@ -229,22 +235,20 @@ class Spindle(Sensor):
 
 
 class TFD(Sensor):
-
-    # completely insane strategy:
-    """
-    y3et
     """
 
-    BITS_TO_N = 1568
+    """
+    BITS_TO_N = -1714
 
     def __init__(self, port):
         super().__init__()
+        self.port_id = port
         self.port = serial.Serial(port, 115200, timeout=0.5)
         self._logger = logging.getLogger(__name__ + ".tfd")
         self._logger.info("Waking up TFD")
         self.port.write("F".encode('ascii'))
         self.port.flush()
-        time.sleep(10)
+        time.sleep(5)
         self.port.reset_input_buffer()
         self._logger.info("TFD Ready")
 
@@ -258,11 +262,11 @@ class TFD(Sensor):
                 return float(resp) / TFD.BITS_TO_N
             except Exception as ex:
                 e = ex
-            self._logger.warn("Read #" + str(i + 1) + " failed, trying again...")
-            self._logger.warn("Specific error: " + str(e))
+            self._logger.warn("Read #" + str(i + 1) + " failed, trying again... Specific error: " + str(e))
+            self.port.close()
+            self.port = serial.Serial(self.port_id, 115200, timeout=0.5)
             self.port.reset_input_buffer()
             self.port.reset_output_buffer()
-
         raise IOError("Failed to get force from TFD")
 
     def calibrate(self):
@@ -278,10 +282,12 @@ class TFD(Sensor):
             except Exception as ex:
                 e = ex
             # sensor failed to calibrate, retry
-            self._logger.warn("Calibrate #" + str(i + 1) + " failed, trying again...")
-            self._logger.warn("Specific error: " + str(e))
+            self._logger.warn("Calibrate #" + str(i + 1) + " failed, trying again... Specific error: " + str(e))
+            self.port.close()
+            self.port = serial.Serial(self.port_id, 115200, timeout=0.5)
             self.port.reset_input_buffer()
             self.port.reset_output_buffer()
+            time.sleep(0.1)
 
         raise IOError("Failed to calibrate TFD")
 
@@ -299,6 +305,7 @@ class Spindle_Applied(Sensor):
         super().__init__()
         self._logger = logging.getLogger(__name__ + ".spindle_applied")
         self._logger.info("Waking up Applied Motion Spindle")
+        self.port_id = port
         self.port = serial.Serial(port, 115200, timeout=0.5)
         self.torque_loss = 0
         self.jogging = False
@@ -346,10 +353,20 @@ class Spindle_Applied(Sensor):
             # trying again
             except Exception as ex:
                 e = ex
-            self._logger.warn("Write #" + str(i + 1) + " failed, trying again.")
-            self._logger.warn("Specific error: " + str(e))
+            self._logger.warn("Write-ack #" + str(i + 1) + " failed, trying again. Specific error: " + str(e))
+
+            # closing and reopening the port to unbork any issues
+            self.port_lock.acquire()
+            self.port.close()
+            self.port = serial.Serial(self.port_id, 115200, timeout=0.5)
             self.port.reset_input_buffer()
             self.port.reset_output_buffer()
+            self.write("AR")
+            self.write("ME")
+            self.write("IFD")
+            self.port_lock.release()
+            time.sleep(0.1)
+
 
         raise IOError("Failed to write command to spindle...")
 
@@ -368,11 +385,17 @@ class Spindle_Applied(Sensor):
 
             except Exception as ex:
                 e = ex
-
-            self._logger.warn("Response #" + str(i + 1) + " failed, trying again.")
-            self._logger.warn("Specific error: " + str(e))
+            self._logger.warn("Write-ack #" + str(i + 1) + " failed, trying again. Specific error: " + str(e))
+            self.port_lock.acquire()
+            self.port.close()
+            self.port = serial.Serial(self.port_id, 115200, timeout=0.5)
             self.port.reset_input_buffer()
             self.port.reset_output_buffer()
+            self.write("AR")
+            self.write("ME")
+            self.write("IFD")
+            self.port_lock.release()
+            time.sleep(0.1)
 
         raise IOError("Failed to get proper response from spindle...")
 

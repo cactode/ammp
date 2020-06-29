@@ -16,8 +16,8 @@ class MachineCrash(Exception):
 
 
 class Cut:
-    def __init__(self, machine_port, spindle_port, tfd_port, endmill, x_max, y_max, f_r_clearing, w_clearing, initial_z=0, save_as=None):
-        self.machine = Machine(machine_port)
+    def __init__(self, machine_port, spindle_port, tfd_port, endmill, x_max, y_max, f_r_clearing, w_clearing, initial_z=0, save_as=None, graceful_shutdown = False):
+        self.machine = Machine(machine_port, graceful_shutdown = graceful_shutdown)
         self.machine.unlock()
         self.machine.zero()
         self.spindle = Spindle_Applied(spindle_port)
@@ -111,10 +111,10 @@ class Cut:
         self.spindle.set_w(self.w_clearing)
 
         self.machine.rapid({'x': self.X_START, 'y': self.Y_START})
-        self.machine.rapid({'z': self.cut_z})
+        self.machine.rapid({'z': self.cut_z + D / 2})
         self.machine.cut({'y': self.Y_END}, self.f_r_clearing)
-        self.machine.rapid({'z': self.cut_z + D + 1e-3})
-        self.machine.rapid({'x': self.X_START, 'y': self.Y_START})
+        self.machine.rapid({'z': self.cut_z})
+        self.machine.cut({'y': self.Y_START}, self.f_r_clearing)
         self.machine.rapid({'z': self.cut_z})
         self.machine.hold_until_still()
 

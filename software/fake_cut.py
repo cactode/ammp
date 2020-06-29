@@ -1,32 +1,45 @@
-from models import T_lin, F_lin
+from models import T_lin, F_lin, T_lin_full, F_lin_full
 from objects import Conditions, Data
 import numpy as np
 import shelve
 import os
+from ml import UnifiedLinearModel
 
+import logging
+log = logging.getLogger(__name__)
 
 class Fake_Cut:
     """
     Fake cutting process. Returns results using prebaked parameters and specified noise levels.
 
     Args:
-        params: list of format [K_tc, K_te, K_rc, K_re]
+        params: list of params
+        T_func: A function to use for torques
+        F_func: A function to use for forces
         error: list of standard deviations of format [o_T, o_Fy]. Simulates the sensor being "wrong" sometimes.
         error: list of standard deviations of format [o_T, o_Fy]. Simulates the sensor being noisy.
     """
 
-    def __init__(self, params, error, noise):
+    def __init__(self, params, T_func, F_func, error, noise):
         self.params = params
+        self.T_func = T_func
+        self.F_func = F_func
         self.error = error
         self.noise = noise
+        log.info("Initialized fake cut with params: " + str(self.params))
 
-    def begin_cut(self, *args, **kwargs):
+    def face_layer(self, *args, **kwargs):
+        log.info("Face cut called")
         pass
 
-    def cut(self, conditions: Conditions):
+    def begin_layer(self, *args, **kwargs):
+        log.info("Begin cut called")
+        pass
+
+    def cut(self, conditions: Conditions, *args, **kwargs):
         # use prediction as output
-        T = T_lin(conditions, *self.params[:2])
-        _, Fy = F_lin(conditions, *self.params)
+        T = self.T_func(conditions, *self.params)
+        _, Fy = self.F_func(conditions, *self.params)
         # add sensor error
         T_error = np.random.normal(T, self.error[0])
         Fy_error = np.random.normal(Fy, self.error[1])
@@ -36,18 +49,17 @@ class Fake_Cut:
         # generate fake times
         t = np.linspace(0, 1, 100)
         # return fake reading
-        return Data(*conditions.unpack(), np.array([t, T_noisy]), np.array([t, Fy_noisy]))
+        data = Data(*conditions.unpack(), np.array([t, T_noisy]).T, np.array([t, Fy_noisy]).T)
+        return data
+
+    def scale_coefs(self, scale):
+        self.params = [scale * p for p in self.params]
 
 
-class ReplayCut:
-    def __init__(self, replay_data):
-        self.data = None
-        with shelve.open(os.path.join("saved_data", "db")) as db:
-            self.data = db[replay_data]
-
-    def begin_cut(self, *args, **kwargs):
-        pass
-
-    def cut(self, *args, **kwargs):
-        for datum in self.data:
-            yield datum
+class ReplayCut(Fake_Cut):
+    def __init__(self, replay_data, model, T_func, F_func, error, noise):
+        self.model = model
+        with shelve.open(os.path.join("saved_cuts", "db")) as db:
+            data = db[replay_data]
+            self.model.ingest_data(data)
+        super().__init__(self.model.params, T_func, F_func, error, noise)
