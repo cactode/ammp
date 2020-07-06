@@ -98,7 +98,7 @@ class Conditions:
         """
         return [self.D, self.W, self.f_r, self.w, self.endmill]
 
-    def compromise(self, other, pref_to_other : float):
+    def compromise(self, other, pref_to_other: float):
         """
         Returns a linear interpolation between this condition and another (as decided by preference_to_other).
         Endmill doesn't change.
@@ -109,7 +109,8 @@ class Conditions:
         """
         self_conditions = self.unpack()[:-1]
         other_conditions = other.unpack()[:-1]
-        between = [s * (1-pref_to_other) + o * pref_to_other for s, o in zip(self_conditions, other_conditions)]
+        between = [s * (1-pref_to_other) + o * pref_to_other for s,
+                   o in zip(self_conditions, other_conditions)]
         return Conditions(*between, self.endmill)
 
     def conditions(self):

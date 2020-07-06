@@ -8,6 +8,7 @@ from ml import UnifiedLinearModel
 import logging
 log = logging.getLogger(__name__)
 
+
 class Fake_Cut:
     """
     Fake cutting process. Returns results using prebaked parameters and specified noise levels.
@@ -37,6 +38,14 @@ class Fake_Cut:
         pass
 
     def cut(self, conditions: Conditions, *args, **kwargs):
+        """Performs a simulated cut with noise
+
+        Args:
+            conditions (Conditions): Conditions for this fake cut
+
+        Returns:
+            Data: A fake data blob with noise
+        """
         # use prediction as output
         T = self.T_func(conditions, *self.params)
         _, Fy = self.F_func(conditions, *self.params)
@@ -49,7 +58,8 @@ class Fake_Cut:
         # generate fake times
         t = np.linspace(0, 1, 100)
         # return fake reading
-        data = Data(*conditions.unpack(), np.array([t, T_noisy]).T, np.array([t, Fy_noisy]).T)
+        data = Data(*conditions.unpack(),
+                    np.array([t, T_noisy]).T, np.array([t, Fy_noisy]).T)
         return data
 
     def scale_coefs(self, scale):

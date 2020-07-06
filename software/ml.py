@@ -9,11 +9,14 @@ from models import T_lin, F_lin, T_lin_full, F_lin_full, T_x_vector, T_x_vector_
 from objects import Data, Conditions, EndMill, Prediction
 
 # https://stackoverflow.com/questions/11686720
+
+
 def mean_no_outliers(data, m=2):
     d = np.abs(data - np.median(data))
     mdev = np.median(d)
     s = d / (mdev if mdev else 1.)
     return np.mean(data[s < m])
+
 
 class Model(abc.ABC):
     """
@@ -36,6 +39,11 @@ class Model(abc.ABC):
     def predict_one(self, conditions):
         """
         Predicts milling forces using the model as it currently is.
+        Args:
+            conditions: a single condition object
+
+        Return:
+            A Prediction using the model in its current state
         """
         pass
 
@@ -43,61 +51,14 @@ class Model(abc.ABC):
         return list(map(self.predict_one, conditions))
 
 
-class LinearModel(Model):
-    def __init__(self, initial_params = [0, 0, 0, 0]):
-        self.training_T_x = list()
-        self.training_T_y = list()
-        self.training_Fy_x = list()
-        self.training_Fy_y = list()
-
-        self.regressor_T = linear_model.LinearRegression(fit_intercept=False)
-        self.regressor_Fy = linear_model.LinearRegression(fit_intercept=False)
-        self.params = initial_params
-
-    def ingest_datum(self, datum):
-        # decompose
-        _, _, _, _, _, Ts, Fys = datum.unpack()
-        T, Fy = mean_no_outliers(Ts[:, 1]), mean_no_outliers(Fys[:, 1])
-        # get linear coefficients
-        T_x = T_x_vector(datum.conditions())
-        Fy_x = Fy_x_vector(datum.conditions())
-
-        # add to training set
-        self.training_T_x.append(T_x)
-        self.training_T_y.append(T)
-        self.training_Fy_x.append(Fy_x)
-        self.training_Fy_y.append(Fy)
-        self.update()
-
-    def update(self):
-        # convert force into numpy arrays for convenience
-        training_Fy_x = np.array(self.training_Fy_x)
-        training_Fy_y = np.array(self.training_Fy_y)
-
-        # calculate best fit from data
-        self.regressor_T.fit(self.training_T_x, self.training_T_y)
-        K_tc, K_te = self.regressor_T.coef_
-        self.params[0], self.params[1] = K_tc, K_te
-
-        # transform Fy into a smaller linear problem and fit
-        intercepts = training_Fy_x @ np.array([K_tc, K_te, 0, 0])[np.newaxis].T
-        training_Fy_y_no_intercepts = np.reshape(
-            training_Fy_y - intercepts.T, (-1))
-        self.regressor_Fy.fit(
-            training_Fy_x[:, 2:], training_Fy_y_no_intercepts)
-        K_rc, K_re = self.regressor_Fy.coef_
-        self.params[2], self.params[3] = K_rc, K_re
-
-    def predict_one(self, conditions):
-        # evaluate
-        T = T_lin(conditions, *self.params)
-        F = F_lin(conditions, *self.params)
-
-        # repack and return
-        return Prediction(*conditions.unpack(), T, F)
-
 class UnifiedLinearModel(Model):
-    def __init__(self, initial_params = [0,0,0,0]):
+    """A model that uses a simple linear regressor.
+
+    Args:
+        initial_params: Initial parameters to use with this model. Helps with bootstrapping.
+    """
+
+    def __init__(self, initial_params=[0, 0, 0, 0]):
         self.training_Tx = list()
         self.training_Ty = list()
         self.training_Fyx = list()
@@ -136,7 +97,8 @@ class UnifiedLinearModel(Model):
 
     def update(self):
         # calculate best fit from data
-        self.regressor.fit(self.training_Tx + self.training_Fyx, self.training_Ty + self.training_Fyy)
+        self.regressor.fit(self.training_Tx + self.training_Fyx,
+                           self.training_Ty + self.training_Fyy)
         self.params = np.array(self.regressor.coef_)
 
     def predict_one(self, conditions):
@@ -152,7 +114,10 @@ class UnifiedLinearModel(Model):
 
 
 class UnifiedLinearModelFull(Model):
-    def __init__(self, initial_params = [0,0,0,0,0,0]):
+    """Same as linear model, but also tries to compensate for variation of cutting pressures with cutting speed. Doesn't really work.
+    """
+
+    def __init__(self, initial_params=[0, 0, 0, 0, 0, 0]):
         self.training_Tx = list()
         self.training_Ty = list()
         self.training_Fyx = list()
@@ -166,8 +131,7 @@ class UnifiedLinearModelFull(Model):
         _, _, _, _, _, Ts, Fys = datum.unpack()
         # mean filter + rejection of outliers
         # T, Fy = np.median(Ts[:, 1]), np.median(Fys[:, 1])
-        T_f, Fy_f = reject_outliers(Ts[:, 1]), reject_outliers(Fys[:, 1])
-        T, Fy = np.mean(T_f), np.mean(Fy_f)
+        T, Fy = mean_no_outliers(Ts[:, 1]), mean_no_outliers(Fys[:, 1])
         # get linear coefficients
         T_x = np.array(T_x_vector_full(datum.conditions()))
         Fy_x = np.array(Fy_x_vector_full(datum.conditions()))
@@ -192,7 +156,8 @@ class UnifiedLinearModelFull(Model):
 
     def update(self):
         # calculate best fit from data
-        self.regressor.fit(self.training_Tx + self.training_Fyx, self.training_Ty + self.training_Fyy)
+        self.regressor.fit(self.training_Tx + self.training_Fyx,
+                           self.training_Ty + self.training_Fyy)
         self.params = np.array(self.regressor.coef_)
 
     def predict_one(self, conditions):
@@ -203,30 +168,37 @@ class UnifiedLinearModelFull(Model):
         # repack and return
         return Prediction(*conditions.unpack(), T, F)
 
+
 class RANSACLinearModel(Model):
-    def __init__(self, initial_params = [0,0,0,0]):
+    """Same as linear model, but also uses RANSAC. Doesn't really work all that well.
+    """
+
+    def __init__(self, initial_params=[0, 0, 0, 0]):
         self.training_Tx = list()
         self.training_Ty = list()
         self.training_Fyx = list()
         self.training_Fyy = list()
 
         base_regressor = linear_model.LinearRegression(fit_intercept=False)
-        self.regressor = linear_model.RANSACRegressor(base_regressor, min_samples=5)
+        self.regressor = linear_model.RANSACRegressor(
+            base_regressor, min_samples=5)
         self.params = initial_params
 
     def ingest_datum(self, datum):
         # decompose
         _, _, _, _, _, Ts, Fys = datum.unpack()
-        T, Fy = np.median(Ts[:, 1]), np.median(Fys[:, 1])
+        T, Fy = mean_no_outliers(Ts[:, 1]), mean_no_outliers(Fys[:, 1])
         # get linear coefficients
         T_x = np.array(T_x_vector_padded(datum.conditions()))
         Fy_x = np.array(Fy_x_vector(datum.conditions()))
 
         # we want to artificially inflate T to be as big as F
-        # this is a little arbitrary, might not be the best idea lol
-        ratio = Fy_x[:2].mean() / T_x[:2].mean()
-        T_x *= ratio
-        T *= ratio
+        norm_T = np.linalg.norm(T_x)
+        T_x /= norm_T
+        T /= norm_T
+        norm_Fy = np.linalg.norm(Fy_x)
+        Fy_x /= norm_Fy
+        Fy /= norm_Fy
 
         # add T to training set
         self.training_Tx.append(T_x)
@@ -241,7 +213,8 @@ class RANSACLinearModel(Model):
 
     def update(self):
         # calculate best fit from data
-        self.regressor.fit(self.training_Tx + self.training_Fyx, self.training_Ty + self.training_Fyy)
+        self.regressor.fit(self.training_Tx + self.training_Fyx,
+                           self.training_Ty + self.training_Fyy)
         self.params = np.array(self.regressor.estimator_.coef_)
 
     def predict_one(self, conditions):
@@ -252,26 +225,30 @@ class RANSACLinearModel(Model):
         # repack and return
         return Prediction(*conditions.unpack(), T, F)
 
+
 class BayesianLinearModel(Model):
     """
     Utilizes a Bayesian approach to pick "safe" values for the coefficients.
     That is, we have a confidence interval for our parameters. We pick the upper end for
-        each coefficient so we don't make too aggressive of a cut
+        each coefficient so we don't make too aggressive of a cut.
+        (also doesn't really work)
     """
-    def __init__(self, initial_params = [0,0,0,0], percentile = .90):
+
+    def __init__(self, initial_params=[0, 0, 0, 0], percentile=.90):
         self.training_Tx = list()
         self.training_Ty = list()
         self.training_Fyx = list()
         self.training_Fyy = list()
 
-        self.regressor = linear_model.ARDRegression(fit_intercept=False, tol = 1e-6, alpha_1 = 1e-9, alpha_2 = 1e-9, lambda_1 = 1e-9, lambda_2 = 1e-9)
+        self.regressor = linear_model.ARDRegression(
+            fit_intercept=False, tol=1e-6, alpha_1=1e-9, alpha_2=1e-9, lambda_1=1e-9, lambda_2=1e-9)
         self.params = initial_params
         self.zscore = stats.norm.ppf(percentile)
 
     def ingest_datum(self, datum):
         # decompose
         _, _, _, _, _, Ts, Fys = datum.unpack()
-        T, Fy = np.median(Ts[:, 1]), np.median(Fys[:, 1])
+        T, Fy = mean_no_outliers(Ts[:, 1]), mean_no_outliers(Fys[:, 1])
         # get linear coefficients
         T_x = np.array(T_x_vector_padded(datum.conditions()))
         Fy_x = np.array(Fy_x_vector(datum.conditions()))
@@ -296,7 +273,8 @@ class BayesianLinearModel(Model):
 
     def update(self):
         # calculate best fit from data
-        self.regressor.fit(self.training_Tx + self.training_Fyx, self.training_Ty + self.training_Fyy)
+        self.regressor.fit(self.training_Tx + self.training_Fyx,
+                           self.training_Ty + self.training_Fyy)
 
         # get params and variance matrix, convert to std deviation
         param_mean = np.array(self.regressor.coef_)
@@ -314,4 +292,3 @@ class BayesianLinearModel(Model):
 
         # repack and return
         return Prediction(*conditions.unpack(), T, F)
-

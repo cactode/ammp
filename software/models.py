@@ -42,6 +42,8 @@ def F_exp_lin(conditions: Conditions, K_TC, K_te, K_RC, K_re, p, q):
     return np.array([Fx, Fy])
 
 # linear models, easier to fit and more simple
+
+
 def T_lin(conditions, K_tc, K_te, K_rc, K_re):
     D, W, _, _, endmill = conditions.unpack()
     N, R, _, _, _ = endmill.unpack()
@@ -60,6 +62,8 @@ def F_lin(conditions, K_tc, K_te, K_rc, K_re):
     return np.array([Fx, Fy])
 
 # linear models that account for spindle speed
+
+
 def T_lin_full(conditions, K_tc, K_tc0, K_te, K_rc, K_rc0, K_re):
     """
     Linear model that also attempts to account for variations in cutting force from spindle speeds. Assumes a linear (w/ intercept) relation between the two.
@@ -73,16 +77,19 @@ def T_lin_full(conditions, K_tc, K_tc0, K_te, K_rc, K_rc0, K_re):
     N, R, _, _, _ = endmill.unpack()
     return (D*N*R*(K_te*np.arccos(1 - W/R) + (2*np.pi*K_tc0*W*f_r + 2*np.pi*K_tc*R*W*f_r*w)/(N*R*w)))/(2*np.pi)
 
+
 def F_lin_full(conditions, K_tc, K_tc0, K_te, K_rc, K_rc0, K_re):
     """
     Linear model that also attempts to account for variations in cutting force from spindle speeds. Assumes a linear (w/ intercept) relation between the two.
     """
     D, W, f_r, w, endmill = conditions.unpack()
     N, R, _, _, _ = endmill.unpack()
-    return  [- ((D*K_re*N*R*W)/2 + (D*K_rc*R**3*f_r*np.pi*np.arccos((R - W)/R))/2 - (D*K_te*N*R*W**(1/2)*(2*R - W)**(1/2))/2 - (D*K_tc*R*W*f_r*np.pi*(2*R - W))/2 - (D*K_rc*R**2*W**(1/2)*f_r*np.pi*(2*R - W)**(1/2))/2 + (D*K_rc*R*W**(3/2)*f_r*np.pi*(2*R - W)**(1/2))/2)/(R**2*np.pi) - ((D*K_rc0*R**2*f_r*np.pi*np.arccos((R - W)/R))/2 + (D*K_rc0*W**(3/2)*f_r*np.pi*(2*R - W)**(1/2))/2 - (D*K_tc0*W*f_r*np.pi*(2*R - W))/2 - (D*K_rc0*R*W**(1/2)*f_r*np.pi*(2*R - W)**(1/2))/2)/(R**2*w*np.pi),
-               ((D*K_te*N*R*W)/2 + (D*K_tc*R**3*f_r*np.pi*np.arccos((R - W)/R))/2 + (D*K_re*N*R*W**(1/2)*(2*R - W)**(1/2))/2 + (D*K_rc*R*W*f_r*np.pi*(2*R - W))/2 - (D*K_tc*R**2*W**(1/2)*f_r*np.pi*(2*R - W)**(1/2))/2 + (D*K_tc*R*W**(3/2)*f_r*np.pi*(2*R - W)**(1/2))/2)/(R**2*np.pi) + ((D*K_tc0*R**2*f_r*np.pi*np.arccos((R - W)/R))/2 + (D*K_tc0*W**(3/2)*f_r*np.pi*(2*R - W)**(1/2))/2 + (D*K_rc0*W*f_r*np.pi*(2*R - W))/2 - (D*K_tc0*R*W**(1/2)*f_r*np.pi*(2*R - W)**(1/2))/2)/(R**2*w*np.pi)]
+    return [- ((D*K_re*N*R*W)/2 + (D*K_rc*R**3*f_r*np.pi*np.arccos((R - W)/R))/2 - (D*K_te*N*R*W**(1/2)*(2*R - W)**(1/2))/2 - (D*K_tc*R*W*f_r*np.pi*(2*R - W))/2 - (D*K_rc*R**2*W**(1/2)*f_r*np.pi*(2*R - W)**(1/2))/2 + (D*K_rc*R*W**(3/2)*f_r*np.pi*(2*R - W)**(1/2))/2)/(R**2*np.pi) - ((D*K_rc0*R**2*f_r*np.pi*np.arccos((R - W)/R))/2 + (D*K_rc0*W**(3/2)*f_r*np.pi*(2*R - W)**(1/2))/2 - (D*K_tc0*W*f_r*np.pi*(2*R - W))/2 - (D*K_rc0*R*W**(1/2)*f_r*np.pi*(2*R - W)**(1/2))/2)/(R**2*w*np.pi),
+            ((D*K_te*N*R*W)/2 + (D*K_tc*R**3*f_r*np.pi*np.arccos((R - W)/R))/2 + (D*K_re*N*R*W**(1/2)*(2*R - W)**(1/2))/2 + (D*K_rc*R*W*f_r*np.pi*(2*R - W))/2 - (D*K_tc*R**2*W**(1/2)*f_r*np.pi*(2*R - W)**(1/2))/2 + (D*K_tc*R*W**(3/2)*f_r*np.pi*(2*R - W)**(1/2))/2)/(R**2*np.pi) + ((D*K_tc0*R**2*f_r*np.pi*np.arccos((R - W)/R))/2 + (D*K_tc0*W**(3/2)*f_r*np.pi*(2*R - W)**(1/2))/2 + (D*K_rc0*W*f_r*np.pi*(2*R - W))/2 - (D*K_tc0*R*W**(1/2)*f_r*np.pi*(2*R - W)**(1/2))/2)/(R**2*w*np.pi)]
 
 # coefficient calculators for linear regression
+
+
 def T_x_vector(conditions: Conditions):
     """
     Outputs vector that corresponds to coefficients in order:
@@ -93,6 +100,7 @@ def T_x_vector(conditions: Conditions):
     f_t = calc_f_t(conditions)
 
     return[(D * N * W * f_t) / (2 * np.pi), (D * N * R * np.arccos(1 - (W / R))) / (2 * np.pi)]
+
 
 def T_x_vector_padded(conditions: Conditions):
     """
@@ -106,23 +114,27 @@ def T_x_vector_padded(conditions: Conditions):
 
     return[(D * N * W * f_t) / (2 * np.pi), (D * N * R * np.arccos(1 - (W / R))) / (2 * np.pi), 0, 0]
 
+
 def Fy_x_vector(conditions: Conditions):
     D, W, _, _, endmill = conditions.unpack()
     N, R, _, _, _ = endmill.unpack()
     f_t = calc_f_t(conditions)
     return [(D*N*f_t*(W**(3/2)*(2*R - W)**(1/2) + R**2*np.arccos((R - W)/R) - R*W**(1/2)*(2*R - W)**(1/2)))/(4*R**2*np.pi), (D*N*W)/(2*R*np.pi), (D*N*W*f_t*(2*R - W))/(4*R**2*np.pi), (D*N*W**(1/2)*(2*R - W)**(1/2))/(2*R*np.pi)]
 
+
 def T_x_vector_full(conditions: Conditions):
     D, W, f_r, w, endmill = conditions.unpack()
     N, R, _, _, _ = endmill.unpack()
-    return [ D*R*W*f_r, (D*W*f_r)/w, (D*N*R*np.arccos(1 - W/R))/(2*np.pi), 0, 0, 0]
+    return [D*R*W*f_r, (D*W*f_r)/w, (D*N*R*np.arccos(1 - W/R))/(2*np.pi), 0, 0, 0]
+
 
 def Fy_x_vector_full(conditions: Conditions):
     D, W, f_r, w, endmill = conditions.unpack()
     N, R, _, _, _ = endmill.unpack()
-    return [ (D*f_r*(W**(3/2)*(2*R - W)**(1/2) + R**2*np.arccos((R - W)/R) - R*W**(1/2)*(2*R - W)**(1/2)))/(2*R), (D*f_r*(W**(3/2)*(2*R - W)**(1/2) + R**2*np.arccos((R - W)/R) - R*W**(1/2)*(2*R - W)**(1/2)))/(2*R**2*w), (D*N*W)/(2*R*np.pi), (D*W*f_r*(2*R - W))/(2*R), (D*W*f_r*(2*R - W))/(2*R**2*w), (D*N*W**(1/2)*(2*R - W)**(1/2))/(2*R*np.pi)]
+    return [(D*f_r*(W**(3/2)*(2*R - W)**(1/2) + R**2*np.arccos((R - W)/R) - R*W**(1/2)*(2*R - W)**(1/2)))/(2*R), (D*f_r*(W**(3/2)*(2*R - W)**(1/2) + R**2*np.arccos((R - W)/R) - R*W**(1/2)*(2*R - W)**(1/2)))/(2*R**2*w), (D*N*W)/(2*R*np.pi), (D*W*f_r*(2*R - W))/(2*R), (D*W*f_r*(2*R - W))/(2*R**2*w), (D*N*W**(1/2)*(2*R - W)**(1/2))/(2*R*np.pi)]
 
-def deflection_load(D_a, prediction: Prediction, machinechar : MachineChar, E_e=650e9):
+
+def deflection_load(D_a, prediction: Prediction, machinechar: MachineChar, E_e=650e9):
     """
     Calculates ratio of tool deflection to allowed deflection.
     Uses FEA model described in doi:10.1016/j.ijmachtools.2005.09.009.
@@ -165,7 +177,7 @@ def deflection_load(D_a, prediction: Prediction, machinechar : MachineChar, E_e=
 
     # calculate tool bending
     D_t = C * (Fy / E) * ((l_1 ** 3 / d_1 ** 4) +
-                         ((l_2 ** 3 - l_1 ** 3) / d_2 ** 4)) ** G * 1e-3
+                          ((l_2 ** 3 - l_1 ** 3) / d_2 ** 4)) ** G * 1e-3
 
     # calculate machine deflection
     D_m = Fy / K_machine
@@ -173,7 +185,7 @@ def deflection_load(D_a, prediction: Prediction, machinechar : MachineChar, E_e=
     return (D_t + D_m) / D_a
 
 
-def deflection_load_simple(prediction: Prediction, machinechar : MachineChar, E_e = 600e9, a_c = 0.8):
+def deflection_load_simple(prediction: Prediction, machinechar: MachineChar, E_e=600e9, a_c=0.8):
     """
     Calculates ratio of deflection to allowable deflection.
     Uses simple approximation that assumes endmill cutter can be approx. as 0.8 of its diameter.
@@ -199,12 +211,15 @@ def deflection_load_simple(prediction: Prediction, machinechar : MachineChar, E_
     I_ceq = np.pi / 4 * r_ceq ** 4  # equivalent cutter 2nd inertia
     I_s = np.pi / 4 * r_s ** 4  # shank 2nd inertia
 
-    M_s = F_y * (l_c - D / 2) # find moment at end of shank
-    D_s = (M_s * l_s ** 2) / (2 * E_e * I_s) + (F_y * l_s ** 3) / (3 * E_e * I_s) # deflection of shank from moment and force
-    theta_s = (M_s * l_s) / (E_e * I_s) # slope at end of shank
-    D_c = (F_y * (l_c - D / 2) ** 2 * (3 * l_c - (l_c - D / 2))) / (6 * E_e * I_ceq) + D_s + theta_s * l_c # deflection at cutter tip from everything
+    M_s = F_y * (l_c - D / 2)  # find moment at end of shank
+    D_s = (M_s * l_s ** 2) / (2 * E_e * I_s) + (F_y * l_s ** 3) / \
+        (3 * E_e * I_s)  # deflection of shank from moment and force
+    theta_s = (M_s * l_s) / (E_e * I_s)  # slope at end of shank
+    D_c = (F_y * (l_c - D / 2) ** 2 * (3 * l_c - (l_c - D / 2))) / (6 * E_e *
+                                                                    I_ceq) + D_s + theta_s * l_c  # deflection at cutter tip from everything
 
     return (D_m + D_c) / D_a
+
 
 def failure_prob_milling(prediction: Prediction, m=4, o=1500e6, a_c=0.8):
     """
@@ -257,14 +272,12 @@ def motor_torque_load(prediction: Prediction, machinechar: MachineChar):
     Returns:
         Ratio of current motor torque to max achievable torque
     """
-    _, _, _, w, _, T, _ = prediction.unpack()
-    r_e, K_T, R_w, V_max, I_max, T_nom, _, _, _ = machinechar.unpack()
-    w_m = w * r_e
+    _, _, _, _, _, T, _ = prediction.unpack()
+    r_e, K_T, _, _, I_max, T_nom, _, _, _ = machinechar.unpack()
     T_m = (T + T_nom) / r_e
     # store K_V for convenience
-    K_V = 1 / K_T
-    # max torque is either determined by max current that can be supplied or max current achievable given winding resistance and whatnot
-    return T_m / min(K_T * I_max, (V_max - K_V * w_m) / R_w)
+    # max torque is either determined by max current that can be supplied
+    return T_m / (K_T * I_max)
 
 
 def motor_speed_load(prediction: Prediction, machinechar: MachineChar):

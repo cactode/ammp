@@ -16,8 +16,9 @@ class MachineCrash(Exception):
 
 
 class Cut:
-    def __init__(self, machine_port, spindle_port, tfd_port, endmill, x_max, y_max, f_r_clearing, w_clearing, initial_z=0, save_as=None, graceful_shutdown = False):
-        self.machine = Machine(machine_port, graceful_shutdown = graceful_shutdown)
+    def __init__(self, machine_port, spindle_port, tfd_port, endmill, x_max, y_max, f_r_clearing, w_clearing, initial_z=0, save_as=None, graceful_shutdown=False):
+        self.machine = Machine(
+            machine_port, graceful_shutdown=graceful_shutdown)
         self.machine.unlock()
         self.machine.zero()
         self.spindle = Spindle_Applied(spindle_port)
@@ -29,7 +30,7 @@ class Cut:
         self.x_max = x_max
         self.y_max = y_max
         self.cut_x = 0
-        self.cut_z = -initial_z # initial z in positive units
+        self.cut_z = -initial_z  # initial z in positive units
         self.D = 0
         self.f_r_clearing = f_r_clearing
         self.w_clearing = w_clearing
@@ -47,6 +48,9 @@ class Cut:
         self.spindle.set_w(0)
 
     def warmup_spindle(self):
+        """
+        Just spins the spindle for a little while to get the bearings warmed up.
+        """
         log.info("Warming up spindle")
         self.spindle.set_w(300)
         time.sleep(30)
@@ -60,16 +64,16 @@ class Cut:
             D: Depth of cut for this layer.
             f_r_clearing: feedrate used for this clearing pass.
             w_clearing: spindle speed used for this clearing pass.
-
         """
         log.info("Preparing to face layer to depth " + str(D) +
-                 " at feedrate " + str(self.f_r_clearing) + " with speed " + str(self.w_clearing))       
+                 " at feedrate " + str(self.f_r_clearing) + " with speed " + str(self.w_clearing))
 
         # define next cut
         self.D = D
         self.cut_z -= D
-        cuts = np.append(np.arange(self.X_START, self.X_END, 1.8 * self.endmill.r_c), self.X_END)
-        
+        cuts = np.append(np.arange(self.X_START, self.X_END,
+                                   1.8 * self.endmill.r_c), self.X_END)
+
         # perform cut
         self.spindle.set_w(self.w_clearing)
         self.machine.rapid({'x': self.X_START, 'y': self.Y_START})
@@ -100,8 +104,6 @@ class Cut:
             f_r_clearing: feedrate used for this clearing pass.
             w_clearing: spindle speed used for this clearing pass.
 
-        Returns:
-            A data blob from this operation.
         """
         log.info("Preparing to clear layer to depth " + str(D) +
                  " at feedrate " + str(self.f_r_clearing) + " with speed " + str(self.w_clearing))
@@ -122,12 +124,21 @@ class Cut:
 
         log.info("Layer prepared for clearing")
 
-    def cut(self, conditions, save = True, auto_layer = True):
+    def cut(self, conditions, save=True, auto_layer=True):
         """
-        Performs a stroke of facing. Returns a data blob.
+        Performes a new cut using the conditions provided.
+
+        Args:
+            conditions (Conditions): The conditions for this cut
+            save (bool, optional): Whether or not to save this cut. Defaults to True.
+            auto_layer (bool, optional): Whether or not to advance to the next layer if you hit X bounds. Defaults to True.
+
+        Raises:
+            MachineCrash: If auto_layer is false and you reach the end travel
+
+        Returns:
+            Data: A data blob for this cut
         """
-
-
         _, W, f_r, w, _ = conditions.unpack()
 
         self.spindle.set_w(w)
@@ -142,13 +153,13 @@ class Cut:
                 self.machine.cut({'y': self.Y_END}, self.f_r_clearing)
                 self.machine.rapid({'z': self.cut_z + self.D + 1e-3})
                 self.machine.hold_until_still()
-                
+
                 # start next layer
                 self.begin_layer(self.D)
 
                 log.info("Actually performing cut now.")
                 # try again, return result
-                return self.cut(conditions, save = save, auto_layer=False)
+                return self.cut(conditions, save=save, auto_layer=False)
             else:
                 raise MachineCrash(
                     "Cutting too far in X direction: X = " + str(X_START))
@@ -204,7 +215,7 @@ class Cut:
                     db[self.save_as] = existing
                 else:
                     db[self.save_as] = [data]
-                
+
                 db.sync()
 
             log.info("Data saved under name " + self.save_as)
@@ -231,4 +242,3 @@ class Cut:
 
 if __name__ == "__main__":
     log.info("Hi")
-    

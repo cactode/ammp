@@ -1,5 +1,4 @@
 import serial
-import pyvesc
 import time
 import numpy as np
 import shelve
@@ -15,6 +14,7 @@ class Sensor(ABC):
     """
     Represents a sensor used for data collection. Implements a basic set of multithreaded data collection subroutines.
     """
+
     def __init__(self):
         self.sensorThread = None
         self.measure = threading.Event()
@@ -46,11 +46,12 @@ class Sensor(ABC):
 class Machine(Sensor):
     """
     Initialize Machine interface.
+
     Args:
         port: port to use
     """
 
-    def __init__(self, port: serial.Serial, graceful_shutdown = False):
+    def __init__(self, port: serial.Serial, graceful_shutdown=False):
         super().__init__()
         self._logger = logging.getLogger(__name__ + ".machine")
         self.port = serial.Serial(port, 115200,
@@ -74,7 +75,7 @@ class Machine(Sensor):
 
     def __del__(self):
         if self.graceful_shutdown:
-            self.rapid({'z': 1})
+            self.rapid({'z': 1e-3})
             self.rapid({'x': 0, 'y': 0})
             self.rapid({'z': 0})
             self.hold_until_still()
@@ -176,67 +177,12 @@ class Machine(Sensor):
         return ('machine', self.get_state())
 
 
-class Spindle(Sensor):
-    REDUCTION = 4
-
-    def __init__(self, port):
-        super().__init__()
-        self._logger = logging.getLogger(__name__ + ".spindle")
-        self._logger.info("Waking up VESC")
-        self.spindle = pyvesc.VESC(port)
-        self._logger.info("VESC Ready")
-        self.spindle_lock = threading.Lock()
-
-        self.avg_current = 0
-
-    def close(self):
-        self.spindle_lock.acquire()
-        self.spindle.set_rpm(0)
-        self.spindle.stop_heartbeat()
-        self.spindle_lock.release()
-
-    def find_avg_current(self):
-        self.avg_current = 0
-        self.spindle_lock.acquire()
-        time.sleep(1)
-        samples = 300
-        for _ in range(samples):
-            time.sleep(0.01)
-            measurements = self.spindle.get_measurements()
-            self.avg_current += measurements.avg_motor_current
-
-        self.spindle_lock.release()
-        self.avg_current /= samples
-
-    def set_w(self, w):
-        self.spindle_lock.acquire()
-        rpm = int(w * (60 / (2 * np.pi))) * 4
-        self.spindle.set_rpm(rpm)
-        time.sleep(1)
-        confirmation = self.spindle.get_measurements()
-        self.spindle_lock.release()
-        self._logger.info("Attempted to set RPM of " + str(rpm) +
-                          ", actual RPM is " + str(confirmation.rpm))
-        if rpm > 0 and confirmation.rpm < rpm * 0.75:
-            self.spindle.set_rpm(0)
-            raise Exception("Spindle did not approach requested speed of " +
-                            str(rpm) + ", actual speed is " + str(confirmation.rpm))
-
-    def sensorFunction(self):
-        self.spindle_lock.acquire()
-        measurements = self.spindle.get_measurements()
-        self.spindle_lock.release()
-        all_measurements = {attr: getattr(measurements, attr) for attr in dir(
-            measurements) if (attr[0] != '_' and "fields" not in attr)}
-        all_measurements['avg_current'] = self.avg_current
-        all_measurements['torque'] = (
-            measurements.avg_motor_current - self.avg_current) * 0.0348134
-        return ('spindle', all_measurements)
-
-
 class TFD(Sensor):
     """
+    Represents a tool force dynamometer.
 
+    Args:
+        port: Port to use
     """
     BITS_TO_N = -1714
 
@@ -262,7 +208,8 @@ class TFD(Sensor):
                 return float(resp) / TFD.BITS_TO_N
             except Exception as ex:
                 e = ex
-            self._logger.warn("Read #" + str(i + 1) + " failed, trying again... Specific error: " + str(e))
+            self._logger.warn(
+                "Read #" + str(i + 1) + " failed, trying again... Specific error: " + str(e))
             self.port.close()
             self.port = serial.Serial(self.port_id, 115200, timeout=0.5)
             self.port.reset_input_buffer()
@@ -282,7 +229,8 @@ class TFD(Sensor):
             except Exception as ex:
                 e = ex
             # sensor failed to calibrate, retry
-            self._logger.warn("Calibrate #" + str(i + 1) + " failed, trying again... Specific error: " + str(e))
+            self._logger.warn("Calibrate #" + str(i + 1) +
+                              " failed, trying again... Specific error: " + str(e))
             self.port.close()
             self.port = serial.Serial(self.port_id, 115200, timeout=0.5)
             self.port.reset_input_buffer()
@@ -296,6 +244,12 @@ class TFD(Sensor):
 
 
 class Spindle_Applied(Sensor):
+    """
+    Represents an Applied Motion spindle.
+
+    Args:
+        port: Port to use
+    """
 
     RS485_ADDRESS = 0
     I_TO_T = 0.10281
@@ -327,8 +281,8 @@ class Spindle_Applied(Sensor):
     def write(self, msg):
         self.port_lock.acquire()
         full_msg = str(Spindle_Applied.RS485_ADDRESS) +\
-                   msg +\
-                   "\r"
+            msg +\
+            "\r"
         self.port.write(full_msg.encode('ascii'))
         self.port.flush()
         self.port_lock.release()
@@ -339,7 +293,8 @@ class Spindle_Applied(Sensor):
             try:
                 self.port_lock.acquire()
                 self.write(msg)
-                response = self.port.read_until('\r'.encode('ascii')).decode('ascii').strip()
+                response = self.port.read_until(
+                    '\r'.encode('ascii')).decode('ascii').strip()
                 self.port_lock.release()
                 ack_byte = response[1] if response else None
                 if ack_byte in ('%', '*'):
@@ -349,11 +304,13 @@ class Spindle_Applied(Sensor):
                 elif not response:
                     self._logger.warn("Command was not understood by drive")
                 else:
-                    self._logger.warn("Unknown ack received: " + response.strip())
+                    self._logger.warn(
+                        "Unknown ack received: " + response.strip())
             # trying again
             except Exception as ex:
                 e = ex
-            self._logger.warn("Write-ack #" + str(i + 1) + " failed, trying again. Specific error: " + str(e))
+            self._logger.warn("Write-ack #" + str(i + 1) +
+                              " failed, trying again. Specific error: " + str(e))
 
             # closing and reopening the port to unbork any issues
             self.port_lock.acquire()
@@ -367,7 +324,6 @@ class Spindle_Applied(Sensor):
             self.port_lock.release()
             time.sleep(0.1)
 
-
         raise IOError("Failed to write command to spindle...")
 
     def write_get_response(self, msg):
@@ -376,16 +332,19 @@ class Spindle_Applied(Sensor):
             try:
                 self.port_lock.acquire()
                 self.write(msg)
-                response = self.port.read_until("\r".encode('ascii')).decode('ascii').strip()
+                response = self.port.read_until(
+                    "\r".encode('ascii')).decode('ascii').strip()
                 self.port_lock.release()
-                assert response[0] == str(Spindle_Applied.RS485_ADDRESS), "Address of response incorrect, was actually " + response[0]
+                assert response[0] == str(
+                    Spindle_Applied.RS485_ADDRESS), "Address of response incorrect, was actually " + response[0]
                 assert response[1:3] == msg[0:2], "Command of response incorrect, was actually " + response[1:3]
                 assert response[3] == "=", "No '=' in response, was actually " + response[4]
                 return response[4:]
 
             except Exception as ex:
                 e = ex
-            self._logger.warn("Write-ack #" + str(i + 1) + " failed, trying again. Specific error: " + str(e))
+            self._logger.warn("Write-ack #" + str(i + 1) +
+                              " failed, trying again. Specific error: " + str(e))
             self.port_lock.acquire()
             self.port.close()
             self.port = serial.Serial(self.port_id, 115200, timeout=0.5)
