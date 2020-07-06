@@ -86,7 +86,7 @@ def ammp(MACHINE_PORT, SPINDLE_PORT, TFD_PORT, D, W, f_r, f_r_clearing, w, START
     logging.info("After bootstrap cut, model params are actually at: " +
                  ", ".join(["{:.5e}".format(p) for p in model.params]))
     if USE_OLD_DATA and not FAKE:
-        with shelve.open(os.path.join("saved_cuts", "db")) as db:
+        with shelve.open(os.path.join("saved_cuts", "shelve")) as db:
             model.ingest_data(db[USE_OLD_DATA])
     logging.info("Partially optimized bootstrap cuts starting now")
 

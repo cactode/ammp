@@ -208,7 +208,7 @@ class Cut:
 
         data = Data(self.D, W, f_r, w, self.endmill, Ts, Fys)
         if self.save_as and save:
-            with shelve.open(os.path.join("saved_cuts", "db")) as db:
+            with shelve.open(os.path.join("saved_cuts", "shelve")) as db:
                 if self.save_as in db:
                     existing = db[self.save_as]
                     existing.append(data)

@@ -69,7 +69,7 @@ class Fake_Cut:
 class ReplayCut(Fake_Cut):
     def __init__(self, replay_data, model, T_func, F_func, error, noise):
         self.model = model
-        with shelve.open(os.path.join("saved_cuts", "db")) as db:
+        with shelve.open(os.path.join("saved_cuts", "shelve")) as db:
             data = db[replay_data]
             self.model.ingest_data(data)
         super().__init__(self.model.params, T_func, F_func, error, noise)
