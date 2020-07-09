@@ -1,4 +1,4 @@
-# Automatic Machining Parameter Detection
+# Automatic Modeling of Machining Processes
 A CNC controller that learns material characteristics and optimizes its own feeds and speeds.
 
 # Project Status
